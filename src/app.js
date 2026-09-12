@@ -4,6 +4,8 @@ import dotenv from "dotenv";
 import helmet from "helmet";
 import morgan from "morgan";
 import cookieParser from "cookie-parser";
+import mongoose from "mongoose";
+import { verifyEmailConnection } from "./services/emailService.js";
 
 import authRoutes from "./routes/authRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
@@ -52,6 +54,27 @@ app.use(helmet());
 
 app.use(morgan("dev"));
 
+
+// ===========================================
+// Health Check Endpoint (For Vercel / Cloud Diagnostics)
+// ===========================================
+app.get("/api/health", async (req, res) => {
+  const isDbConnected = mongoose.connection.readyState === 1;
+  let emailStatus = "checking";
+  try {
+    const isEmailOk = await verifyEmailConnection();
+    emailStatus = isEmailOk ? "Connected (SMTP Verified)" : "Failed (Check credentials)";
+  } catch (err) {
+    emailStatus = "Error: " + err.message;
+  }
+
+  return res.status(200).json({
+    status: isDbConnected ? "Healthy" : "Degraded",
+    database: isDbConnected ? "Connected (MongoDB Atlas)" : "Disconnected",
+    email: emailStatus,
+    timestamp: new Date().toISOString(),
+  });
+});
 
 // ===========================================
 // Routes
