@@ -52,6 +52,18 @@ export const loginUser = async (email, password) => {
     throw new Error("Invalid email or password");
   }
 
+  if (user.role === "VENDOR") {
+    throw new Error(
+      "Access denied. Vendor accounts must log in via the Vendor Portal."
+    );
+  }
+
+  if (user.status && user.status !== "ACTIVE") {
+    throw new Error(
+      "Your account is inactive. Please contact the administrator."
+    );
+  }
+
   return {
     _id: user._id,
     name: user.name,
