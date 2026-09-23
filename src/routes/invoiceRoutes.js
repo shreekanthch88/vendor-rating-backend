@@ -38,9 +38,21 @@ router.get("/dashboard", getInvoiceDashboard);
 // Standard CRUD
 router.get("/", getAllInvoices);
 router.get("/:id", getInvoiceById);
-router.post("/", createInvoice);
-router.put("/:id", updateInvoice);
-router.patch("/:id/submit", submitInvoice);
+router.post(
+  "/",
+  authorize("SUPER_ADMIN", "ADMIN", "FINANCE_MANAGER", "PURCHASE_MANAGER", "VENDOR"),
+  createInvoice
+);
+router.put(
+  "/:id",
+  authorize("SUPER_ADMIN", "ADMIN", "FINANCE_MANAGER", "PURCHASE_MANAGER", "VENDOR"),
+  updateInvoice
+);
+router.patch(
+  "/:id/submit",
+  authorize("SUPER_ADMIN", "ADMIN", "FINANCE_MANAGER", "PURCHASE_MANAGER", "VENDOR"),
+  submitInvoice
+);
 
 /**
  * =========================================================

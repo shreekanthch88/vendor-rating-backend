@@ -54,7 +54,12 @@ export const getPOInvoiceableDetails = async (req, res, next) => {
 export const createInvoice = async (req, res, next) => {
   try {
     const isVendor = req.user.role === "VENDOR";
-    const invoice = await invoiceService.createInvoice(req.body, req.user._id, isVendor);
+    const invoice = await invoiceService.createInvoice(
+      req.body,
+      req.user._id,
+      isVendor,
+      req.user
+    );
     res.status(201).json({
       success: true,
       message: "Invoice created successfully.",

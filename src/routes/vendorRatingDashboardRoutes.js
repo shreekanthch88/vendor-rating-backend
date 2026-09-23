@@ -3,6 +3,7 @@ import express from "express";
 import {
   getVendorRatingDashboard,
 } from "../controllers/vendorRatingDashboardController.js";
+import { protect, authorize } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
@@ -23,6 +24,8 @@ const router = express.Router();
 
 router.get(
   "/",
+  protect,
+  authorize("SUPER_ADMIN", "ADMIN", "PURCHASE_MANAGER", "QUALITY_MANAGER", "VIEWER"),
   getVendorRatingDashboard
 );
 

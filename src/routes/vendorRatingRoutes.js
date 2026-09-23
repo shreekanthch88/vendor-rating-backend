@@ -14,7 +14,7 @@ import {
   getVendorRatingDashboard,
 } from "../controllers/vendorRatingController.js";
 
-import { protect } from "../middleware/authMiddleware.js";
+import { protect, authorize } from "../middleware/authMiddleware.js";
 
 const router =
   express.Router();
@@ -39,9 +39,8 @@ const router =
 
 router.post(
   "/generate",
-
   protect,
-
+  authorize("SUPER_ADMIN", "ADMIN", "PURCHASE_MANAGER", "QUALITY_MANAGER"),
   generateVendorRating
 );
 
@@ -129,9 +128,8 @@ router.get(
 
 router.put(
   "/:id/evaluate",
-
   protect,
-
+  authorize("SUPER_ADMIN", "ADMIN", "PURCHASE_MANAGER", "QUALITY_MANAGER"),
   updateEvaluatorScores
 );
 
@@ -144,9 +142,8 @@ router.put(
 
 router.post(
   "/:id/submit",
-
   protect,
-
+  authorize("SUPER_ADMIN", "ADMIN", "PURCHASE_MANAGER", "QUALITY_MANAGER"),
   submitVendorRating
 );
 
@@ -159,9 +156,8 @@ router.post(
 
 router.post(
   "/:id/approve",
-
   protect,
-
+  authorize("SUPER_ADMIN", "ADMIN"),
   approveVendorRating
 );
 
@@ -174,9 +170,8 @@ router.post(
 
 router.post(
   "/:id/lock",
-
   protect,
-
+  authorize("SUPER_ADMIN", "ADMIN"),
   lockVendorRating
 );
 
@@ -189,9 +184,8 @@ router.post(
 
 router.delete(
   "/:id",
-
   protect,
-
+  authorize("SUPER_ADMIN", "ADMIN"),
   deleteVendorRating
 );
 

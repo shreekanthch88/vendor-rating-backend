@@ -262,7 +262,7 @@ export const getEligiblePurchaseOrders = async (vendorId) => {
  * 2. Create Invoice
  * =========================================================
  */
-export const createInvoice = async (data, userId, isVendor = false) => {
+export const createInvoice = async (data, userId, isVendor = false, user = null) => {
   const {
     purchaseOrderId,
     vendorId,
@@ -284,8 +284,19 @@ export const createInvoice = async (data, userId, isVendor = false) => {
   const poDetails = await calculatePOInvoiceableDetails(purchaseOrderId);
   const po = poDetails.purchaseOrder;
 
+  if (isVendor) {
+    if (!user || !user.vendor) {
+      throw new Error("Vendor user is not associated with a vendor profile.");
+    }
+    if (String(user.vendor) !== String(po.vendor?._id || po.vendor)) {
+      throw new Error(
+        "You are not authorized to create an invoice for this Purchase Order."
+      );
+    }
+  }
+
   const finalVendorId = isVendor
-    ? String(po.vendor?._id || po.vendor)
+    ? String(user.vendor)
     : (vendorId || String(po.vendor?._id || po.vendor));
 
   if (String(po.vendor?._id || po.vendor) !== String(finalVendorId)) {
