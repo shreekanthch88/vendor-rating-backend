@@ -395,6 +395,9 @@ export const createQualityInspection =
         status:
           "Draft",
 
+        currentStep:
+          2,
+
         overallResult:
           "Accepted",
 
@@ -2139,8 +2142,8 @@ export const getQualityInspectionAnalytics = async ({
     .populate("vendor", "vendorName companyName code")
     .populate({
       path: "items.material",
-      select: "name materialCode category",
-      populate: { path: "category", select: "name code" },
+      select: "materialName materialCode category",
+      populate: { path: "category", select: "categoryName categoryCode" },
     })
     .sort({ inspectionDate: 1 })
     .lean();
@@ -2159,8 +2162,6 @@ export const getQualityInspectionAnalytics = async ({
   const trendPercent =
     prevPeriodCount > 0
       ? Math.round(((totalInspections - prevPeriodCount) / prevPeriodCount) * 100)
-      : totalInspections > 0
-      ? 12
       : 0;
 
   // Key Result Counts
@@ -2216,10 +2217,6 @@ export const getQualityInspectionAnalytics = async ({
       reFailedCount++;
     }
   });
-  if (reInspectionCount > 0 && rePassedCount === 0 && reFailedCount === 0) {
-    rePassedCount = Math.ceil(reInspectionCount * 0.72);
-    reFailedCount = reInspectionCount - rePassedCount;
-  }
 
   // Replacements query
   const repQuery = { isDeleted: false };
@@ -2245,11 +2242,6 @@ export const getQualityInspectionAnalytics = async ({
       repPending++;
     }
   });
-  if (replacementCount > 0 && repApproved === 0 && repPending === 0) {
-    repApproved = Math.ceil(replacementCount * 0.75);
-    repRejected = Math.floor(replacementCount * 0.17);
-    repPending = replacementCount - repApproved - repRejected;
-  }
 
   // Results Distribution for Donut Chart
   const resultsDistribution = [
@@ -2280,9 +2272,16 @@ export const getQualityInspectionAnalytics = async ({
     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
   ];
   const chartMonths = [];
-  const currentMonthDate = new Date();
+  let endMonthDate = new Date();
+  inspections.forEach((insp) => {
+    const d = new Date(insp.inspectionDate || insp.createdAt);
+    if (!isNaN(d.getTime()) && d > endMonthDate) {
+      endMonthDate = d;
+    }
+  });
+
   for (let i = monthsCount - 1; i >= 0; i--) {
-    const d = new Date(currentMonthDate.getFullYear(), currentMonthDate.getMonth() - i, 1);
+    const d = new Date(endMonthDate.getFullYear(), endMonthDate.getMonth() - i, 1);
     const label = `${monthNames[d.getMonth()]} ${d.getFullYear()}`;
     chartMonths.push(label);
     monthMap[label] = { total: 0, accepted: 0, rejected: 0, defects: 0 };
@@ -2290,27 +2289,29 @@ export const getQualityInspectionAnalytics = async ({
 
   inspections.forEach((insp) => {
     const d = new Date(insp.inspectionDate || insp.createdAt);
-    const label = `${monthNames[d.getMonth()]} ${d.getFullYear()}`;
-    if (monthMap[label]) {
-      monthMap[label].total++;
-      if (insp.overallResult === "Accepted") monthMap[label].accepted++;
-      if (insp.overallResult === "Rejected") monthMap[label].rejected++;
-      const hasDefect = (insp.items || []).some(
-        (item) => (item.defects || []).length > 0 || item.rejectedQuantity > 0
-      );
-      if (hasDefect) monthMap[label].defects++;
+    if (!isNaN(d.getTime())) {
+      const label = `${monthNames[d.getMonth()]} ${d.getFullYear()}`;
+      if (monthMap[label]) {
+        monthMap[label].total++;
+        if (insp.overallResult === "Accepted") monthMap[label].accepted++;
+        if (insp.overallResult === "Rejected") monthMap[label].rejected++;
+        const hasDefect = (insp.items || []).some(
+          (item) => (item.defects || []).length > 0 || item.rejectedQuantity > 0 || item.damagedQuantity > 0
+        );
+        if (hasDefect) monthMap[label].defects++;
+      }
     }
   });
 
   const monthlyTrends = chartMonths.map((m) => {
     const entry = monthMap[m];
-    if (entry.total > 0) {
+    if (entry && entry.total > 0) {
       const aRate = Math.round((entry.accepted / entry.total) * 100);
       const rRate = Math.round((entry.rejected / entry.total) * 100);
       const dRate = Math.round((entry.defects / entry.total) * 100);
       return { month: m, acceptanceRate: aRate, rejectionRate: rRate, defectRate: dRate };
     }
-    return { month: m, acceptanceRate: 80, rejectionRate: 14, defectRate: 8 };
+    return { month: m, acceptanceRate: 0, rejectionRate: 0, defectRate: 0 };
   });
 
   // Top Defect Reasons
@@ -2322,12 +2323,10 @@ export const getQualityInspectionAnalytics = async ({
     "Quantity Damage": 0,
     "Other": 0,
   };
-  let totalDefectsFound = 0;
 
   inspections.forEach((insp) => {
     (insp.items || []).forEach((item) => {
       (item.defects || []).forEach((d) => {
-        totalDefectsFound++;
         const cat = d.category || "";
         if (cat.includes("Dimensional")) defectCounts["Dimensional Defect"] += d.quantity || 1;
         else if (cat.includes("Visual") || cat.includes("Packaging"))
@@ -2341,19 +2340,9 @@ export const getQualityInspectionAnalytics = async ({
       });
       if (item.damagedQuantity > 0) {
         defectCounts["Surface Damage"] += item.damagedQuantity;
-        totalDefectsFound += item.damagedQuantity;
       }
     });
   });
-
-  if (totalDefectsFound === 0) {
-    defectCounts["Dimensional Defect"] = 38;
-    defectCounts["Surface Damage"] = 26;
-    defectCounts["Material Defect"] = 18;
-    defectCounts["Wrong Specification"] = 14;
-    defectCounts["Quantity Damage"] = 9;
-    defectCounts["Other"] = 5;
-  }
 
   const topDefects = Object.entries(defectCounts).map(([name, count], index) => {
     const colors = ["#EF4444", "#3B82F6", "#10B981", "#F59E0B", "#8B5CF6", "#94A3B8"];
@@ -2385,13 +2374,17 @@ export const getQualityInspectionAnalytics = async ({
     if (insp.overallResult === "Accepted") vendorMap[vId].accepted++;
     if (insp.overallResult === "Rejected") vendorMap[vId].rejected++;
     if (insp.isReinspection || insp.reinspectionRequired) vendorMap[vId].reInspections++;
+    const hasDefect = (insp.items || []).some(
+      (item) => (item.defects || []).length > 0 || item.rejectedQuantity > 0 || item.damagedQuantity > 0
+    );
+    if (hasDefect) vendorMap[vId].defects++;
   });
 
   let vendorPerformance = Object.values(vendorMap).map((item) => {
-    const acceptedRate = Math.round((item.accepted / item.inspections) * 100);
-    const rejectedRate = Math.round((item.rejected / item.inspections) * 100);
-    const defectRate = Math.max(1, Math.round((rejectedRate * 0.75 + 1.2) * 10) / 10);
-    const qualityScore = Math.min(99, Math.max(65, Math.round(acceptedRate * 0.96 + 4)));
+    const acceptedRate = item.inspections > 0 ? Math.round((item.accepted / item.inspections) * 100) : 0;
+    const rejectedRate = item.inspections > 0 ? Math.round((item.rejected / item.inspections) * 100) : 0;
+    const defectRate = item.inspections > 0 ? Math.round((item.defects / item.inspections) * 100 * 10) / 10 : 0;
+    const qualityScore = item.inspections > 0 ? Math.round((item.accepted / item.inspections) * 100) : 0;
     const trend = qualityScore >= 80 ? "up" : "down";
     return {
       vendorId: item.vendorId,
@@ -2405,40 +2398,13 @@ export const getQualityInspectionAnalytics = async ({
       trend,
     };
   });
-
-  if (vendorPerformance.length < 5) {
-    const allDbVendors = await Vendor.find({ isDeleted: false }).limit(6).lean();
-    const demoDefaults = [
-      { name: "ABC Steel Industries", insp: 32, acc: 94, rej: 3, def: 2.1, re: 1, score: 94, trend: "up" },
-      { name: "XYZ Metals Pvt Ltd", insp: 28, acc: 82, rej: 11, def: 8.4, re: 5, score: 82, trend: "down" },
-      { name: "Global Components", insp: 25, acc: 96, rej: 2, def: 1.5, re: 1, score: 96, trend: "up" },
-      { name: "Tech Materials Supply", insp: 22, acc: 78, rej: 15, def: 11.2, re: 6, score: 76, trend: "down" },
-      { name: "PQR Industries", insp: 20, acc: 92, rej: 4, def: 2.8, re: 2, score: 91, trend: "up" },
-    ];
-    demoDefaults.forEach((demo, idx) => {
-      const matchingDbVendor = allDbVendors[idx];
-      const name = matchingDbVendor?.vendorName || demo.name;
-      if (!vendorPerformance.some((v) => v.vendorName === name)) {
-        vendorPerformance.push({
-          vendorId: matchingDbVendor?._id?.toString() || `demo-${idx}`,
-          vendorName: name,
-          inspections: demo.insp,
-          acceptedRate: demo.acc,
-          rejectedRate: demo.rej,
-          defectRate: demo.def,
-          reInspections: demo.re,
-          qualityScore: demo.score,
-          trend: demo.trend,
-        });
-      }
-    });
-  }
+  vendorPerformance.sort((a, b) => b.inspections - a.inspections);
 
   // Material-wise Rejection Analysis Table
   const materialMap = {};
   inspections.forEach((insp) => {
     (insp.items || []).forEach((item) => {
-      const mName = item.materialName || item.material?.name || "Standard Item";
+      const mName = item.materialName || item.material?.materialName || item.material?.name || "Standard Item";
       if (!materialMap[mName]) {
         materialMap[mName] = { material: mName, inspections: 0, rejected: 0, defects: 0 };
       }
@@ -2451,7 +2417,7 @@ export const getQualityInspectionAnalytics = async ({
   let materialRejections = Object.values(materialMap).map((m) => {
     const rejectionRate = m.inspections > 0 ? Math.round((m.rejected / m.inspections) * 100) : 0;
     const defectRate =
-      m.inspections > 0 ? Math.max(1.5, Math.round((m.defects / m.inspections) * 100 * 10) / 10) : 2.5;
+      m.inspections > 0 ? Math.round((m.defects / m.inspections) * 100 * 10) / 10 : 0;
     return {
       material: m.material,
       inspections: m.inspections,
@@ -2459,87 +2425,66 @@ export const getQualityInspectionAnalytics = async ({
       defectRate,
     };
   });
-
-  if (materialRejections.length < 5) {
-    const defaultMaterials = [
-      { material: "Steel Plate", inspections: 42, rejectionRate: 4, defectRate: 2.8 },
-      { material: "Copper Wire", inspections: 31, rejectionRate: 13, defectRate: 9.2 },
-      { material: "Aluminium Sheet", inspections: 28, rejectionRate: 3, defectRate: 2.1 },
-      { material: "Stainless Steel Rod", inspections: 24, rejectionRate: 11, defectRate: 7.5 },
-      { material: "PVC Components", inspections: 18, rejectionRate: 6, defectRate: 3.4 },
-    ];
-    defaultMaterials.forEach((dm) => {
-      if (!materialRejections.some((m) => m.material === dm.material)) {
-        materialRejections.push(dm);
-      }
-    });
-  }
+  materialRejections.sort((a, b) => b.inspections - a.inspections);
 
   // Filter Dropdown Options
   const allVendors = await Vendor.find({ isDeleted: false })
     .select("_id vendorName companyName")
     .lean();
   const allCategories = await MaterialCategory.find({ isDeleted: false })
-    .select("_id name code")
+    .select("_id categoryName categoryCode")
     .lean();
 
   return {
     summary: {
-      totalInspections: totalInspections > 0 ? totalInspections : 186,
-      trendPercent: trendPercent || 12,
+      totalInspections,
+      trendPercent,
       accepted: {
-        count: acceptedCount > 0 ? acceptedCount : 142,
-        rate: acceptedRate > 0 ? acceptedRate : 76,
+        count: acceptedCount,
+        rate: acceptedRate,
       },
       conditionallyAccepted: {
-        count: conditionalCount > 0 ? conditionalCount : 21,
-        rate: conditionalRate > 0 ? conditionalRate : 11,
+        count: conditionalCount,
+        rate: conditionalRate,
       },
       rejected: {
-        count: rejectedCount > 0 ? rejectedCount : 23,
-        rate: rejectedRate > 0 ? rejectedRate : 13,
+        count: rejectedCount,
+        rate: rejectedRate,
       },
       reInspections: {
-        count: reInspectionCount > 0 ? reInspectionCount : 18,
-        rate: reInspectionRate > 0 ? reInspectionRate : 10,
+        count: reInspectionCount,
+        rate: reInspectionRate,
       },
       replacementRequests: {
-        count: replacementCount > 0 ? replacementCount : 12,
-        rate: replacementRate > 0 ? replacementRate : 6,
+        count: replacementCount,
+        rate: replacementRate,
       },
     },
-    resultsDistribution:
-      totalInspections > 0
-        ? resultsDistribution
-        : [
-            { name: "Accepted", value: 142, percentage: 76, color: "#10B981" },
-            { name: "Conditional", value: 21, percentage: 11, color: "#F59E0B" },
-            { name: "Rejected", value: 23, percentage: 13, color: "#EF4444" },
-          ],
+    resultsDistribution,
     monthlyTrends,
     topDefects,
     vendorPerformance,
     materialRejections,
     reinspectionAnalysis: {
-      total: reInspectionCount > 0 ? reInspectionCount : 18,
-      passedAfterCorrection: rePassedCount > 0 ? rePassedCount : 13,
-      failedAgain: reFailedCount > 0 ? reFailedCount : 5,
+      total: reInspectionCount,
+      passedAfterCorrection: rePassedCount,
+      failedAgain: reFailedCount,
       passedRate:
-        reInspectionCount > 0 ? Math.round((rePassedCount / reInspectionCount) * 100) : 72,
+        reInspectionCount > 0 ? Math.round((rePassedCount / reInspectionCount) * 100) : 0,
       failedRate:
-        reInspectionCount > 0 ? Math.round((reFailedCount / reInspectionCount) * 100) : 28,
+        reInspectionCount > 0 ? Math.round((reFailedCount / reInspectionCount) * 100) : 0,
     },
     replacementAnalysis: {
-      total: replacementCount > 0 ? replacementCount : 12,
-      approved: repApproved > 0 ? repApproved : 9,
-      rejected: repRejected > 0 ? repRejected : 2,
-      pending: repPending > 0 ? repPending : 1,
+      total: replacementCount,
+      approved: repApproved,
+      rejected: repRejected,
+      pending: repPending,
       approvedRate:
-        replacementCount > 0 ? Math.round((repApproved / replacementCount) * 100) : 75,
+        replacementCount > 0 ? Math.round((repApproved / replacementCount) * 100) : 0,
       rejectedRate:
-        replacementCount > 0 ? Math.round((repRejected / replacementCount) * 100) : 17,
+        replacementCount > 0 ? Math.round((repRejected / replacementCount) * 100) : 0,
       pendingRate:
-        replacementCount > 0 ? Math.round((repPending / replacementCount) * 100) : 8,
+        replacementCount > 0 ? Math.round((repPending / replacementCount) * 100) : 0,
     },
     filterOptions: {
       vendors: allVendors.map((v) => ({
@@ -2548,7 +2493,7 @@ export const getQualityInspectionAnalytics = async ({
       })),
       categories: allCategories.map((c) => ({
         _id: c._id,
-        name: c.name,
+        name: c.categoryName || c.categoryCode || "Category",
       })),
     },
   };

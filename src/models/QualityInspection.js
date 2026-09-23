@@ -425,6 +425,13 @@ const qualityInspectionSchema =
         default: "Draft",
       },
 
+      currentStep: {
+        type: Number,
+        default: 2,
+        min: 2,
+        max: 6,
+      },
+
 
       // ===================================================
       // OVERALL RESULT
