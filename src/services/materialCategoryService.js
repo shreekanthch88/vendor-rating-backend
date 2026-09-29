@@ -59,23 +59,25 @@ export const getAllCategories = async (
     isDeleted: false,
   };
 
-  if (search) {
+  const trimmedSearch = typeof search === "string" ? search.trim() : "";
+  if (trimmedSearch) {
+    const escapedSearch = trimmedSearch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     query.$or = [
       {
         categoryName: {
-          $regex: search,
+          $regex: escapedSearch,
           $options: "i",
         },
       },
       {
         categoryCode: {
-          $regex: search,
+          $regex: escapedSearch,
           $options: "i",
         },
       },
       {
         description: {
-          $regex: search,
+          $regex: escapedSearch,
           $options: "i",
         },
       },

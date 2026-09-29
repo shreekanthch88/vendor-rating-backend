@@ -52,10 +52,23 @@ export const createMaterial = async (data, userId) => {
     }
   }
 
+  if (
+    data.standardCost === undefined ||
+    data.standardCost === null ||
+    isNaN(Number(data.standardCost))
+  ) {
+    throw new Error("Standard cost is required and must be a valid number.");
+  }
+
+  if (Number(data.standardCost) < 0) {
+    throw new Error("Standard cost cannot be a negative number.");
+  }
+
   const materialCode = await generateMaterialCode();
 
   const material = await Material.create({
     ...data,
+    standardCost: Number(data.standardCost),
     materialName: trimmedName,
     materialCode,
     createdBy: userId,
@@ -80,17 +93,19 @@ export const getAllMaterials = async ({
     isDeleted: false,
   };
 
-  if (search) {
+  const trimmedSearch = typeof search === "string" ? search.trim() : "";
+  if (trimmedSearch) {
+    const escapedSearch = trimmedSearch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     query.$or = [
       {
         materialName: {
-          $regex: search,
+          $regex: escapedSearch,
           $options: "i",
         },
       },
       {
         materialCode: {
-          $regex: search,
+          $regex: escapedSearch,
           $options: "i",
         },
       },
@@ -183,6 +198,20 @@ export const updateMaterial = async (
     if (!categoryExists) {
       throw new Error("Selected material category does not exist.");
     }
+  }
+
+  if (
+    data.standardCost !== undefined &&
+    data.standardCost !== null &&
+    data.standardCost !== ""
+  ) {
+    if (isNaN(Number(data.standardCost))) {
+      throw new Error("Standard cost must be a valid number.");
+    }
+    if (Number(data.standardCost) < 0) {
+      throw new Error("Standard cost cannot be a negative number.");
+    }
+    updatePayload.standardCost = Number(data.standardCost);
   }
 
   const material = await Material.findByIdAndUpdate(
