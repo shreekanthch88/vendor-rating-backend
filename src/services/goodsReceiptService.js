@@ -2391,13 +2391,16 @@ export const approveGoodsReceipt =
     receipt.status =
       "Approved";
 
-
     receipt.updatedBy =
       userId;
 
-
     await receipt.save();
 
+    if (receipt.purchaseOrder) {
+      await PurchaseOrder.findByIdAndUpdate(receipt.purchaseOrder, {
+        status: "Delivered",
+      });
+    }
 
     return receipt;
   };

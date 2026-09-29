@@ -192,7 +192,11 @@ export const getAllPurchaseOrders =
     }
 
     if (status) {
-      query.status = status;
+      if (status === "Completed" || status === "Delivered") {
+        query.status = { $in: ["Completed", "Delivered", "Closed"] };
+      } else {
+        query.status = status;
+      }
     }
 
     if (vendor) {
@@ -214,7 +218,7 @@ export const getAllPurchaseOrders =
 
         .populate(
           "vendor",
-          "vendorName companyName"
+          "vendorCode vendorName companyName email mobile phone vendorCategory businessType gstNumber status"
         )
 
         .sort({
@@ -250,7 +254,7 @@ export const getPurchaseOrderById = async (id) => {
 
     .populate(
       "vendor",
-      "vendorCode vendorName companyName email phone address"
+      "vendorCode vendorName companyName email mobile phone address gstNumber panNumber vendorCategory businessType status"
     )
 
     .populate(
@@ -712,7 +716,7 @@ export const getPurchaseOrderDashboard = async () => {
   });
 
   const delivered = await PurchaseOrder.countDocuments({
-    status: "Delivered",
+    status: { $in: ["Delivered", "Completed", "Closed"] },
     isDeleted: false,
   });
 

@@ -104,6 +104,7 @@ export const getVendorRatings = async (
     const {
       vendorId,
       status,
+      search,
       page,
       limit,
     } = req.query;
@@ -146,6 +147,8 @@ export const getVendorRatings = async (
         limit,
 
         status,
+
+        search,
       });
 
 

@@ -230,6 +230,7 @@ const purchaseOrderSchema = new mongoose.Schema(
         "Rejected",
         "Partially Delivered",
         "Delivered",
+        "Completed",
         "Closed",
         "Cancelled",
       ],

@@ -65,6 +65,45 @@ export const createVendor = async (
     }
   }
 
+  // GST Number uniqueness
+  if (vendorData.gstNumber) {
+    const existingGst = await Vendor.findOne({
+      gstNumber: vendorData.gstNumber.trim().toUpperCase(),
+      isDeleted: false,
+    });
+    if (existingGst) {
+      const error = new Error("A vendor with this GST number already exists.");
+      error.statusCode = 409;
+      throw error;
+    }
+  }
+
+  // PAN Number uniqueness
+  if (vendorData.panNumber) {
+    const existingPan = await Vendor.findOne({
+      panNumber: vendorData.panNumber.trim().toUpperCase(),
+      isDeleted: false,
+    });
+    if (existingPan) {
+      const error = new Error("A vendor with this PAN number already exists.");
+      error.statusCode = 409;
+      throw error;
+    }
+  }
+
+  // Bank Account Number uniqueness
+  if (vendorData.bankDetails?.accountNumber) {
+    const existingAccount = await Vendor.findOne({
+      "bankDetails.accountNumber": vendorData.bankDetails.accountNumber.trim(),
+      isDeleted: false,
+    });
+    if (existingAccount) {
+      const error = new Error("A vendor with this bank account number already exists.");
+      error.statusCode = 409;
+      throw error;
+    }
+  }
+
   const vendorCode =
     await generateVendorCode();
 
@@ -180,29 +219,55 @@ export const getAllVendors = async (
     isDeleted: false,
   };
 
-  if (search) {
+  const cleanSearch = String(search || "").trim();
+  if (cleanSearch) {
+    const escapedSearch = cleanSearch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     query.$or = [
       {
         vendorName: {
-          $regex: search,
+          $regex: escapedSearch,
           $options: "i",
         },
       },
       {
         vendorCode: {
-          $regex: search,
+          $regex: escapedSearch,
           $options: "i",
         },
       },
       {
-        gstNumber: {
-          $regex: search,
+        vendorCategory: {
+          $regex: escapedSearch,
+          $options: "i",
+        },
+      },
+      {
+        contactPerson: {
+          $regex: escapedSearch,
           $options: "i",
         },
       },
       {
         email: {
-          $regex: search,
+          $regex: escapedSearch,
+          $options: "i",
+        },
+      },
+      {
+        mobile: {
+          $regex: escapedSearch,
+          $options: "i",
+        },
+      },
+      {
+        gstNumber: {
+          $regex: escapedSearch,
+          $options: "i",
+        },
+      },
+      {
+        panNumber: {
+          $regex: escapedSearch,
           $options: "i",
         },
       },
@@ -259,7 +324,63 @@ export const updateVendor = async (
   data,
   userId
 ) => {
-  return await Vendor.findByIdAndUpdate(
+  // Email uniqueness check (excluding self)
+  if (data.email) {
+    const existingEmail = await Vendor.findOne({
+      email: data.email.trim().toLowerCase(),
+      isDeleted: false,
+      _id: { $ne: id },
+    });
+    if (existingEmail) {
+      const error = new Error("A vendor with this email address already exists.");
+      error.statusCode = 409;
+      throw error;
+    }
+  }
+
+  // GST Number uniqueness (excluding self)
+  if (data.gstNumber) {
+    const existingGst = await Vendor.findOne({
+      gstNumber: data.gstNumber.trim().toUpperCase(),
+      isDeleted: false,
+      _id: { $ne: id },
+    });
+    if (existingGst) {
+      const error = new Error("A vendor with this GST number already exists.");
+      error.statusCode = 409;
+      throw error;
+    }
+  }
+
+  // PAN Number uniqueness (excluding self)
+  if (data.panNumber) {
+    const existingPan = await Vendor.findOne({
+      panNumber: data.panNumber.trim().toUpperCase(),
+      isDeleted: false,
+      _id: { $ne: id },
+    });
+    if (existingPan) {
+      const error = new Error("A vendor with this PAN number already exists.");
+      error.statusCode = 409;
+      throw error;
+    }
+  }
+
+  // Bank Account Number uniqueness (excluding self)
+  if (data.bankDetails?.accountNumber) {
+    const existingAccount = await Vendor.findOne({
+      "bankDetails.accountNumber": data.bankDetails.accountNumber.trim(),
+      isDeleted: false,
+      _id: { $ne: id },
+    });
+    if (existingAccount) {
+      const error = new Error("A vendor with this bank account number already exists.");
+      error.statusCode = 409;
+      throw error;
+    }
+  }
+
+  const updatedVendor = await Vendor.findByIdAndUpdate(
     id,
     {
       ...data,
@@ -270,6 +391,17 @@ export const updateVendor = async (
       runValidators: true,
     }
   );
+
+  // Cascade status update to User collection if status changed
+  if (updatedVendor && data.status) {
+    const userStatus = data.status === "Active" ? "ACTIVE" : "INACTIVE";
+    await User.updateMany(
+      { vendor: updatedVendor._id, role: "VENDOR" },
+      { status: userStatus }
+    );
+  }
+
+  return updatedVendor;
 };
 
 /**
@@ -283,7 +415,7 @@ export const updateVendorStatus =
     status,
     userId
   ) => {
-    return await Vendor.findByIdAndUpdate(
+    const vendor = await Vendor.findByIdAndUpdate(
       id,
       {
         status,
@@ -293,6 +425,18 @@ export const updateVendorStatus =
         new: true,
       }
     );
+
+    if (vendor) {
+      const userStatus =
+        status === "Active" ? "ACTIVE" : "INACTIVE";
+
+      await User.updateMany(
+        { vendor: vendor._id, role: "VENDOR" },
+        { status: userStatus }
+      );
+    }
+
+    return vendor;
   };
 
 /**
@@ -376,12 +520,41 @@ export const createVendorUser = async (
     throw new Error("Vendor not found.");
   }
 
+  // Strong password validation
+  const password = userData.password || "";
+  const strongPasswordRegex =
+    /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]).{8,}$/;
+  if (!strongPasswordRegex.test(password)) {
+    const err = new Error(
+      "Password must be at least 8 characters and contain at least one uppercase letter, one lowercase letter, one number, and one special character."
+    );
+    err.statusCode = 400;
+    throw err;
+  }
+
   const existingUser = await User.findOne({
     email: userData.email.toLowerCase(),
+    isDeleted: { $ne: true },
   });
 
   if (existingUser) {
-    throw new Error("Email already exists.");
+    const err = new Error("Email already exists.");
+    err.statusCode = 409;
+    throw err;
+  }
+
+  // Phone number uniqueness check
+  if (userData.phone) {
+    const cleanPhone = userData.phone.trim();
+    const existingPhone = await User.findOne({
+      phone: cleanPhone,
+      isDeleted: { $ne: true },
+    });
+    if (existingPhone) {
+      const err = new Error("A user with this phone number already exists.");
+      err.statusCode = 409;
+      throw err;
+    }
   }
 
   const vendorUser = await User.create({
@@ -396,6 +569,7 @@ export const createVendorUser = async (
     isPrimaryContact:
       userData.isPrimaryContact || false,
     status: "ACTIVE",
+    isDeleted: false,
   });
 
   return await User.findById(
@@ -422,6 +596,7 @@ export const getVendorUsers = async (
   return await User.find({
     vendor: vendorId,
     role: "VENDOR",
+    isDeleted: { $ne: true },
   })
     .select("-password")
     .sort({
@@ -442,6 +617,7 @@ export const getVendorUserById = async (
     _id: userId,
     vendor: vendorId,
     role: "VENDOR",
+    isDeleted: { $ne: true },
   }).select("-password");
 
   if (!user) {
@@ -467,12 +643,28 @@ export const updateVendorUser = async (
   delete data.role;
   delete data.vendor;
 
+  // Phone duplicate check excluding self
+  if (data.phone) {
+    const cleanPhone = data.phone.trim();
+    const existingPhone = await User.findOne({
+      phone: cleanPhone,
+      _id: { $ne: userId },
+      isDeleted: { $ne: true },
+    });
+    if (existingPhone) {
+      const err = new Error("A user with this phone number already exists.");
+      err.statusCode = 409;
+      throw err;
+    }
+  }
+
   const user =
     await User.findOneAndUpdate(
       {
         _id: userId,
         vendor: vendorId,
         role: "VENDOR",
+        isDeleted: { $ne: true },
       },
       {
         ...data,
@@ -503,11 +695,22 @@ export const resetVendorUserPassword =
     userId,
     password
   ) => {
+    const strongPasswordRegex =
+      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]).{8,}$/;
+    if (!strongPasswordRegex.test(password || "")) {
+      const err = new Error(
+        "Password must be at least 8 characters and contain at least one uppercase letter, one lowercase letter, one number, and one special character."
+      );
+      err.statusCode = 400;
+      throw err;
+    }
+
     const user =
       await User.findOne({
         _id: userId,
         vendor: vendorId,
         role: "VENDOR",
+        isDeleted: { $ne: true },
       });
 
     if (!user) {
@@ -554,6 +757,7 @@ export const changeVendorUserStatus =
           _id: userId,
           vendor: vendorId,
           role: "VENDOR",
+          isDeleted: { $ne: true },
         },
         {
           status,
@@ -588,9 +792,11 @@ export const deleteVendorUser =
           _id: userId,
           vendor: vendorId,
           role: "VENDOR",
+          isDeleted: { $ne: true },
         },
         {
           status: "INACTIVE",
+          isDeleted: true,
         },
         {
           new: true,

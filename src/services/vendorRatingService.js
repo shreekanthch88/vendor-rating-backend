@@ -1427,6 +1427,7 @@ export const getVendorRatings = async ({
   page = 1,
   limit = 10,
   status = "",
+  search = "",
 } = {}) => {
   const currentPage = Math.max(1, Number(page) || 1);
   const currentLimit = Math.max(1, Number(limit) || 10);
@@ -1434,6 +1435,29 @@ export const getVendorRatings = async ({
 
   if (vendorId) filter.vendor = vendorId;
   if (status) filter.status = status;
+
+  const cleanSearch = String(search || "").trim();
+  if (cleanSearch) {
+    const escaped = cleanSearch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const matchedVendors = await Vendor.find({
+      isDeleted: false,
+      $or: [
+        { vendorName: { $regex: escaped, $options: "i" } },
+        { vendorCode: { $regex: escaped, $options: "i" } },
+        { vendorCategory: { $regex: escaped, $options: "i" } },
+      ],
+    }).select("_id");
+    const vendorIds = matchedVendors.map((v) => v._id);
+
+    if (filter.vendor) {
+      const isMatch = vendorIds.some(
+        (id) => String(id) === String(filter.vendor)
+      );
+      filter.vendor = isMatch ? filter.vendor : null;
+    } else {
+      filter.vendor = { $in: vendorIds };
+    }
+  }
 
   const skip = (currentPage - 1) * currentLimit;
 
