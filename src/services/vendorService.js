@@ -1,5 +1,6 @@
 import Vendor from "../models/Vendor.js";
 import User from "../models/User.js";
+import VendorRating from "../models/VendorRating.js";
 
 /**
  * =====================================================
@@ -8,17 +9,19 @@ import User from "../models/User.js";
  * =====================================================
  */
 const generateVendorCode = async () => {
-  const lastVendor = await Vendor.findOne().sort({
+  const lastVendor = await Vendor.findOne({
+    vendorCode: { $exists: true, $ne: null },
+  }).sort({
     createdAt: -1,
   });
 
-  if (!lastVendor) {
+  if (!lastVendor || !lastVendor.vendorCode) {
     return "VEN00001";
   }
 
   const lastNumber =
     parseInt(
-      lastVendor.vendorCode.replace("VEN", "")
+      String(lastVendor.vendorCode).replace(/\D/g, "")
     ) || 0;
 
   const nextNumber = lastNumber + 1;
@@ -37,6 +40,31 @@ export const createVendor = async (
   vendorData,
   userId
 ) => {
+  // Deduplication check
+  if (vendorData.email) {
+    const existingEmail = await Vendor.findOne({
+      email: vendorData.email.trim().toLowerCase(),
+      isDeleted: false,
+    });
+    if (existingEmail) {
+      const error = new Error("A vendor with this email address already exists.");
+      error.statusCode = 409;
+      throw error;
+    }
+  }
+
+  if (vendorData.vendorName) {
+    const existingName = await Vendor.findOne({
+      vendorName: { $regex: `^${vendorData.vendorName.trim()}$`, $options: "i" },
+      isDeleted: false,
+    });
+    if (existingName) {
+      const error = new Error("A vendor with this name already exists.");
+      error.statusCode = 409;
+      throw error;
+    }
+  }
+
   const vendorCode =
     await generateVendorCode();
 
@@ -47,6 +75,94 @@ export const createVendor = async (
   });
 
   return vendor;
+};
+
+/**
+ * =====================================================
+ * Helper: Attach Latest Ratings to Vendors
+ * =====================================================
+ */
+const attachRatingsToVendors = async (vendors) => {
+  if (!vendors || vendors.length === 0) return [];
+
+  const vendorIds = vendors.map((v) => v._id);
+
+  // Find all active ratings for these vendors, sorted newest first
+  const ratings = await VendorRating.find({
+    vendor: { $in: vendorIds },
+    isDeleted: false,
+  })
+    .sort({ createdAt: -1 })
+    .select(
+      "vendor finalOverallScore systemOverallScore ratingCategory status createdAt"
+    )
+    .lean();
+
+  // Map latest rating per vendor, prioritizing Approved/Locked over Draft/Under Review
+  const ratingMap = new Map();
+  for (const r of ratings) {
+    const vId = r.vendor.toString();
+    if (!ratingMap.has(vId)) {
+      ratingMap.set(vId, r);
+    } else {
+      const existing = ratingMap.get(vId);
+      const isCurrentOfficial = ["Approved", "Locked"].includes(r.status);
+      const isExistingOfficial = ["Approved", "Locked"].includes(
+        existing.status
+      );
+      if (isCurrentOfficial && !isExistingOfficial) {
+        ratingMap.set(vId, r);
+      }
+    }
+  }
+
+  return vendors.map((v) => {
+    const doc = v.toObject ? v.toObject() : { ...v };
+    const latestRating = ratingMap.get(v._id.toString());
+
+    // Determine overall score (0 - 100)
+    let overallScore = null;
+    if (
+      latestRating?.finalOverallScore !== null &&
+      latestRating?.finalOverallScore !== undefined
+    ) {
+      overallScore = latestRating.finalOverallScore;
+    } else if (
+      latestRating?.systemOverallScore !== null &&
+      latestRating?.systemOverallScore !== undefined
+    ) {
+      overallScore = latestRating.systemOverallScore;
+    } else if (
+      doc.performance?.overallRating !== null &&
+      doc.performance?.overallRating !== undefined &&
+      doc.performance.overallRating > 0
+    ) {
+      overallScore = doc.performance.overallRating;
+    }
+
+    // Convert score (0 - 100) to 5-star rating (0.0 to 5.0)
+    const rating5 =
+      overallScore !== null
+        ? Number((overallScore / 20).toFixed(1))
+        : null;
+
+    const ratingCategory =
+      latestRating?.ratingCategory ||
+      doc.performance?.ratingCategory ||
+      null;
+
+    const ratingStatus = latestRating?.status || null;
+
+    return {
+      ...doc,
+      overallRating: rating5,
+      overallScore:
+        overallScore !== null ? Number(Number(overallScore).toFixed(1)) : null,
+      ratingCategory,
+      ratingStatus,
+      rating: rating5,
+    };
+  });
 };
 
 /**
@@ -107,8 +223,10 @@ export const getAllVendors = async (
     .skip((page - 1) * limit)
     .limit(Number(limit));
 
+  const enrichedVendors = await attachRatingsToVendors(vendors);
+
   return {
-    vendors,
+    vendors: enrichedVendors,
     total,
     page: Number(page),
     pages: Math.ceil(
@@ -125,7 +243,10 @@ export const getAllVendors = async (
 export const getVendorById = async (
   id
 ) => {
-  return await Vendor.findById(id);
+  const vendor = await Vendor.findById(id);
+  if (!vendor) return null;
+  const [enriched] = await attachRatingsToVendors([vendor]);
+  return enriched;
 };
 
 /**

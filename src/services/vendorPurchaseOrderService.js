@@ -102,9 +102,9 @@ export const getVendorPurchaseOrderById =
         );
 
     if (!purchaseOrder) {
-      throw new Error(
-        "Purchase Order not found."
-      );
+      const error = new Error("Purchase Order not found.");
+      error.statusCode = 404;
+      throw error;
     }
 
     return purchaseOrder;

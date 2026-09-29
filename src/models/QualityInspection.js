@@ -215,6 +215,12 @@ const qualityInspectionItemSchema =
         min: 0,
       },
 
+      approvedDeviationQuantity: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+
       inspectionShortQuantity: {
         type: Number,
         default: 0,
@@ -480,6 +486,12 @@ const qualityInspectionSchema =
       },
 
       totalDamagedQuantity: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+
+      totalApprovedDeviationQuantity: {
         type: Number,
         default: 0,
         min: 0,

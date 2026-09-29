@@ -453,10 +453,16 @@ const calculateQuality = ({
     }
 
     for (const item of inspection.items || []) {
-      const inspected = toNumber(item.inspectionQuantity);
+      let inspected = toNumber(item.inspectionQuantity);
       const accepted = toNumber(item.acceptedQuantity);
       const rejected = toNumber(item.rejectedQuantity);
       const damaged = toNumber(item.damagedQuantity);
+      const deviation = toNumber(item.approvedDeviationQuantity);
+
+      // Safe fallback for legacy records where inspectionQuantity was not recorded
+      if (inspected === 0 && (accepted > 0 || rejected > 0 || damaged > 0 || deviation > 0)) {
+        inspected = accepted + rejected + damaged + deviation;
+      }
 
       inspectedQuantity += inspected;
       damagedQuantity += damaged;
