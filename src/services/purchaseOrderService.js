@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import PurchaseOrder from "../models/PurchaseOrder.js";
 import PurchaseRequisition from "../models/PurchaseRequisition.js";
+import Vendor from "../models/Vendor.js";
 import { createForVendor, createForRole } from "./notificationService.js";
 
 /**
@@ -10,20 +11,27 @@ import { createForVendor, createForRole } from "./notificationService.js";
  * ===========================================
  */
 const generatePONumber = async () => {
-  const lastPO = await PurchaseOrder.findOne()
-    .sort({ createdAt: -1 })
-    .select("poNumber");
+  const orders = await PurchaseOrder.find({
+    poNumber: /^PO\d+$/i,
+  }).select("poNumber");
 
-  if (!lastPO) {
-    return "PO000001";
+  let maxNumber = 0;
+  for (const doc of orders) {
+    const num = parseInt(doc.poNumber.replace(/\D/g, ""), 10);
+    if (!isNaN(num) && num > maxNumber) {
+      maxNumber = num;
+    }
   }
 
-  const lastNumber = parseInt(
-    lastPO.poNumber.replace("PO", ""),
-    10
-  );
+  let nextNumber = maxNumber + 1;
+  let candidate = `PO${String(nextNumber).padStart(6, "0")}`;
 
-  return `PO${String(lastNumber + 1).padStart(6, "0")}`;
+  while (await PurchaseOrder.exists({ poNumber: candidate })) {
+    nextNumber += 1;
+    candidate = `PO${String(nextNumber).padStart(6, "0")}`;
+  }
+
+  return candidate;
 };
 
 /**
@@ -178,17 +186,34 @@ export const getAllPurchaseOrders =
     search = "",
     status = "",
     vendor = "",
+    priority = "",
   }) => {
 
     const query = {
       isDeleted: false,
     };
 
-    if (search) {
-      query.poNumber = {
-        $regex: search,
-        $options: "i",
-      };
+    if (search && search.trim()) {
+      const sanitized = search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+      const matchingVendors = await Vendor.find({
+        $or: [
+          { vendorName: { $regex: sanitized, $options: "i" } },
+          { vendorCode: { $regex: sanitized, $options: "i" } },
+        ],
+      }).select("_id");
+      const vendorIds = matchingVendors.map((v) => v._id);
+
+      const matchingPRs = await PurchaseRequisition.find({
+        prNumber: { $regex: sanitized, $options: "i" },
+      }).select("_id");
+      const prIds = matchingPRs.map((pr) => pr._id);
+
+      query.$or = [
+        { poNumber: { $regex: sanitized, $options: "i" } },
+        { vendor: { $in: vendorIds } },
+        { purchaseRequisition: { $in: prIds } },
+      ];
     }
 
     if (status) {
@@ -199,8 +224,24 @@ export const getAllPurchaseOrders =
       }
     }
 
-    if (vendor) {
-      query.vendor = vendor;
+    if (vendor && vendor.trim()) {
+      const trimmedVendor = vendor.trim();
+      if (mongoose.Types.ObjectId.isValid(trimmedVendor) && String(new mongoose.Types.ObjectId(trimmedVendor)) === trimmedVendor) {
+        query.vendor = trimmedVendor;
+      } else {
+        const sanitizedVendor = trimmedVendor.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const matchedVendors = await Vendor.find({
+          $or: [
+            { vendorName: { $regex: sanitizedVendor, $options: "i" } },
+            { vendorCode: { $regex: sanitizedVendor, $options: "i" } },
+          ],
+        }).select("_id");
+        query.vendor = { $in: matchedVendors.map((v) => v._id) };
+      }
+    }
+
+    if (priority) {
+      query.priority = priority;
     }
 
     const total =
@@ -508,6 +549,41 @@ export const rejectPurchaseOrder = async (
     {
       status: "Rejected",
       rejectionReason: reason,
+      updatedBy: userId,
+    },
+    {
+      new: true,
+    }
+  );
+};
+
+/**
+ * ===========================================
+ * Cancel Purchase Order
+ * ===========================================
+ */
+export const cancelPurchaseOrder = async (id, userId, reason = "") => {
+  const purchaseOrder = await PurchaseOrder.findById(id);
+
+  if (!purchaseOrder) {
+    throw new Error("Purchase Order not found.");
+  }
+
+  if (["Delivered", "Completed", "Closed"].includes(purchaseOrder.status)) {
+    throw new Error("Delivered or completed purchase orders cannot be cancelled.");
+  }
+
+  if (purchaseOrder.status === "Cancelled") {
+    throw new Error("Purchase Order is already cancelled.");
+  }
+
+  return await PurchaseOrder.findByIdAndUpdate(
+    id,
+    {
+      status: "Cancelled",
+      cancellationReason: reason,
+      cancelledBy: userId,
+      cancelledDate: new Date(),
       updatedBy: userId,
     },
     {

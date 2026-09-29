@@ -51,16 +51,30 @@ const purchaseRequisitionSchema = new mongoose.Schema(
 
     department: {
       type: String,
-      required: true,
-      enum: [
-        "Production",
-        "Purchase",
-        "Maintenance",
-        "Quality",
-        "Stores",
-        "Administration",
-        "Finance",
+      required: [
+        function () {
+          const docStatus =
+            this && typeof this.getUpdate === "function"
+              ? this.getUpdate()?.status || this.getUpdate()?.$set?.status
+              : this?.status;
+          return docStatus !== "Draft";
+        },
+        "Department is required.",
       ],
+      enum: {
+        values: [
+          "",
+          "Production",
+          "Purchase",
+          "Maintenance",
+          "Quality",
+          "Stores",
+          "Administration",
+          "Finance",
+        ],
+        message: "{VALUE} is not a valid department",
+      },
+      default: "",
     },
 
     requestedBy: {
@@ -71,7 +85,17 @@ const purchaseRequisitionSchema = new mongoose.Schema(
 
     requiredDate: {
       type: Date,
-      required: true,
+      required: [
+        function () {
+          const docStatus =
+            this && typeof this.getUpdate === "function"
+              ? this.getUpdate()?.status || this.getUpdate()?.$set?.status
+              : this?.status;
+          return docStatus !== "Draft";
+        },
+        "Required Date is required.",
+      ],
+      default: Date.now,
     },
 
     priority: {
@@ -98,7 +122,16 @@ const purchaseRequisitionSchema = new mongoose.Schema(
     items: {
       type: [purchaseRequisitionItemSchema],
       validate: [
-        (items) => items.length > 0,
+        function (items) {
+          const docStatus =
+            this && typeof this.getUpdate === "function"
+              ? this.getUpdate()?.status || this.getUpdate()?.$set?.status
+              : this?.status;
+          if (docStatus === "Draft") {
+            return true;
+          }
+          return Array.isArray(items) && items.length > 0;
+        },
         "At least one material is required.",
       ],
     },

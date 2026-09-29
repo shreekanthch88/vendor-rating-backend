@@ -9,6 +9,7 @@ import {
   submitPurchaseOrderController,
   approvePurchaseOrderController,
   rejectPurchaseOrderController,
+  cancelPurchaseOrderController,
   sendPurchaseOrderToVendorController,
   vendorAcceptPurchaseOrderController,
   vendorRejectPurchaseOrderController,
@@ -137,6 +138,13 @@ router.patch(
   protect,
   authorize(...poManageRoles),
   rejectPurchaseOrderController
+);
+
+router.patch(
+  "/:id/cancel",
+  protect,
+  authorize(...poManageRoles),
+  cancelPurchaseOrderController
 );
 
 router.patch(

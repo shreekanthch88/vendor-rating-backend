@@ -7,20 +7,27 @@ import PurchaseRequisition from "../models/PurchaseRequisition.js";
  * ==========================================
  */
 const generatePRNumber = async () => {
-  const lastPR = await PurchaseRequisition.findOne()
-    .sort({ createdAt: -1 })
-    .select("prNumber");
+  const requisitions = await PurchaseRequisition.find({
+    prNumber: /^PR\d+$/i,
+  }).select("prNumber");
 
-  if (!lastPR) {
-    return "PR000001";
+  let maxNumber = 0;
+  for (const doc of requisitions) {
+    const num = parseInt(doc.prNumber.replace(/\D/g, ""), 10);
+    if (!isNaN(num) && num > maxNumber) {
+      maxNumber = num;
+    }
   }
 
-  const lastNumber = parseInt(
-    lastPR.prNumber.replace("PR", ""),
-    10
-  );
+  let nextNumber = maxNumber + 1;
+  let candidate = `PR${String(nextNumber).padStart(6, "0")}`;
 
-  return `PR${String(lastNumber + 1).padStart(6, "0")}`;
+  while (await PurchaseRequisition.exists({ prNumber: candidate })) {
+    nextNumber += 1;
+    candidate = `PR${String(nextNumber).padStart(6, "0")}`;
+  }
+
+  return candidate;
 };
 
 /**
@@ -49,13 +56,17 @@ export const createPurchaseRequisition = async (
 ) => {
   const prNumber = await generatePRNumber();
 
-  const totalEstimatedAmount = calculateTotal(
-    data.items
+  let items = Array.isArray(data.items) ? data.items : [];
+  items = items.filter(
+    (item) => item && item.material && String(item.material).trim() !== ""
   );
+
+  const totalEstimatedAmount = calculateTotal(items);
 
   const requisition =
     await PurchaseRequisition.create({
       ...data,
+      items,
       prNumber,
       requestedBy: userId,
       totalEstimatedAmount,
@@ -94,13 +105,24 @@ export const getAllPurchaseRequisitions =
     };
 
     /**
-     * Search PR Number
+     * Search PR Number & Purpose
      */
-    if (search) {
-      query.prNumber = {
-        $regex: search,
-        $options: "i",
-      };
+    if (search && search.trim()) {
+      const sanitized = search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      query.$or = [
+        {
+          prNumber: {
+            $regex: sanitized,
+            $options: "i",
+          },
+        },
+        {
+          purpose: {
+            $regex: sanitized,
+            $options: "i",
+          },
+        },
+      ];
     }
 
     /**
@@ -222,15 +244,20 @@ export const updatePurchaseRequisition =
     data,
     userId
   ) => {
-    if (data.items) {
-      data.totalEstimatedAmount =
-        calculateTotal(data.items);
+    const updatePayload = { ...data };
+
+    if (updatePayload.items) {
+      updatePayload.items = updatePayload.items.filter(
+        (item) => item && item.material && String(item.material).trim() !== ""
+      );
+      updatePayload.totalEstimatedAmount =
+        calculateTotal(updatePayload.items);
     }
 
     return await PurchaseRequisition.findByIdAndUpdate(
       id,
       {
-        ...data,
+        ...updatePayload,
         updatedBy: userId,
       },
       {

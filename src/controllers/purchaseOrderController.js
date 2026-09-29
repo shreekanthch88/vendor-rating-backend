@@ -9,6 +9,7 @@ import {
   submitPurchaseOrder,
   approvePurchaseOrder,
   rejectPurchaseOrder,
+  cancelPurchaseOrder,
   sendPurchaseOrderToVendor,
   vendorAcceptPurchaseOrder,
   vendorRejectPurchaseOrder,
@@ -195,6 +196,31 @@ export const rejectPurchaseOrderController =
       success: true,
       message:
         "Purchase Order rejected successfully.",
+      data: purchaseOrder,
+    });
+
+  });
+
+/**
+ * ===========================================
+ * Cancel Purchase Order
+ * PATCH /api/purchase-orders/:id/cancel
+ * ===========================================
+ */
+export const cancelPurchaseOrderController =
+  asyncHandler(async (req, res) => {
+
+    const purchaseOrder =
+      await cancelPurchaseOrder(
+        req.params.id,
+        req.user._id,
+        req.body.reason
+      );
+
+    res.status(200).json({
+      success: true,
+      message:
+        "Purchase Order cancelled successfully.",
       data: purchaseOrder,
     });
 
