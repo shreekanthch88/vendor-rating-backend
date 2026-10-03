@@ -2,6 +2,8 @@ import {
   registerUser,
   loginUser,
   changeUserPassword,
+  requestPasswordResetOtp,
+  resetUserPasswordWithOtp,
 } from "../services/authService.js";
 
 // Register
@@ -61,6 +63,47 @@ export const changePassword = async (req, res) => {
       currentPassword,
       newPassword
     );
+
+    res.status(200).json({
+      success: true,
+      message: result.message,
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+// Request Password Reset OTP
+export const forgotPassword = async (req, res) => {
+  try {
+    const { email, portal } = req.body;
+    const result = await requestPasswordResetOtp(email, portal);
+
+    res.status(200).json({
+      success: true,
+      message: result.message,
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+// Reset Password With OTP
+export const resetPassword = async (req, res) => {
+  try {
+    const { email, otp, newPassword, portal } = req.body;
+    const result = await resetUserPasswordWithOtp({
+      email,
+      otp,
+      newPassword,
+      portal,
+    });
 
     res.status(200).json({
       success: true,

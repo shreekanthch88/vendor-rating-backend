@@ -4,6 +4,7 @@ import GoodsReceipt from "../models/GoodsReceipt.js";
 import PurchaseOrder from "../models/PurchaseOrder.js";
 import Dispatch from "../models/Dispatch.js";
 import ReplacementRequest from "../models/ReplacementRequest.js";
+import QualityInspection from "../models/QualityInspection.js";
 import { createForVendor, createForRole } from "./notificationService.js";
 
 
@@ -2629,13 +2630,39 @@ export const getGoodsReceiptById =
         )
         .populate(
           "items.material"
-        );
+        )
+        .populate({
+          path: "qualityInspection",
+          populate: {
+            path: "inspectedBy",
+            select: "name email role",
+          },
+        });
 
 
     if (!goodsReceipt) {
       throw new Error(
         "Goods Receipt not found."
       );
+    }
+
+
+    // ── Fallback: if qualityInspection is not linked on the GRN
+    //    document, attempt a reverse-lookup from the QI collection.
+    if (!goodsReceipt.qualityInspection) {
+      const linkedQI =
+        await QualityInspection.findOne({
+          goodsReceipt: grnId,
+          isDeleted: { $ne: true },
+        }).populate(
+          "inspectedBy",
+          "name email role"
+        );
+
+      if (linkedQI) {
+        goodsReceipt.qualityInspection =
+          linkedQI;
+      }
     }
 
 
