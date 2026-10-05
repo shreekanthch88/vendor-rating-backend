@@ -76,7 +76,7 @@ if (user.status !== "ACTIVE") {
 
 /**
  * ============================================
- * Validate Vendor Profile
+ * Validate Vendor Profile & Status
  * ============================================
  */
 if (!user.vendor) {
@@ -85,12 +85,30 @@ if (!user.vendor) {
   );
 }
 
-if (
-  user.vendor.isDeleted ||
-  user.vendor.status === "Blacklisted"
-) {
+if (user.vendor.isDeleted) {
   throw new Error(
     "Vendor account is not allowed to login."
+  );
+}
+
+if (user.vendor.status !== "Active") {
+  if (user.vendor.status === "Inactive") {
+    throw new Error(
+      "Your vendor account has been deactivated. Please contact the administrator."
+    );
+  }
+  if (user.vendor.status === "Pending") {
+    throw new Error(
+      "Your vendor account is pending approval."
+    );
+  }
+  if (user.vendor.status === "Blacklisted") {
+    throw new Error(
+      "Vendor account is blacklisted and not allowed to login."
+    );
+  }
+  throw new Error(
+    "Vendor account is not active. Please contact the administrator."
   );
 }
 

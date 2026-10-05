@@ -396,7 +396,7 @@ export const updateVendor = async (
   if (updatedVendor && data.status) {
     const userStatus = data.status === "Active" ? "ACTIVE" : "INACTIVE";
     await User.updateMany(
-      { vendor: updatedVendor._id, role: "VENDOR" },
+      { vendor: updatedVendor._id },
       { status: userStatus }
     );
   }
@@ -431,7 +431,7 @@ export const updateVendorStatus =
         status === "Active" ? "ACTIVE" : "INACTIVE";
 
       await User.updateMany(
-        { vendor: vendor._id, role: "VENDOR" },
+        { vendor: vendor._id },
         { status: userStatus }
       );
     }
@@ -448,7 +448,7 @@ export const deleteVendor = async (
   id,
   userId
 ) => {
-  return await Vendor.findByIdAndUpdate(
+  const vendor = await Vendor.findByIdAndUpdate(
     id,
     {
       isDeleted: true,
@@ -458,6 +458,15 @@ export const deleteVendor = async (
       new: true,
     }
   );
+
+  if (vendor) {
+    await User.updateMany(
+      { vendor: vendor._id },
+      { status: "INACTIVE", isDeleted: true }
+    );
+  }
+
+  return vendor;
 };
 
 /**

@@ -1,5 +1,6 @@
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
+import Vendor from "../models/Vendor.js";
 
 /**
  * ==========================================
@@ -60,6 +61,33 @@ export const protect = async (req, res, next) => {
           success: false,
           message: "User not found",
         });
+      }
+
+      /**
+       * ======================================
+       * Check User Active Status
+       * ======================================
+       */
+      if (req.user.isDeleted || (req.user.status && req.user.status !== "ACTIVE")) {
+        return res.status(401).json({
+          success: false,
+          message: "Your account is inactive. Please contact the administrator.",
+        });
+      }
+
+      /**
+       * ======================================
+       * Check Vendor Active Status
+       * ======================================
+       */
+      if (req.user.role === "VENDOR" && req.user.vendor) {
+        const vendorDoc = await Vendor.findById(req.user.vendor).select("status isDeleted");
+        if (!vendorDoc || vendorDoc.isDeleted || vendorDoc.status !== "Active") {
+          return res.status(401).json({
+            success: false,
+            message: "Your vendor account is inactive. Please contact the administrator.",
+          });
+        }
       }
 
       /**
