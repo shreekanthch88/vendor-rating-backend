@@ -6,16 +6,18 @@ import Material from "../models/Material.js";
  * Format: CAT0001
  */
 const generateCategoryCode = async () => {
-  const categories = await MaterialCategory.find({
-    categoryCode: /^CAT\d+$/i,
-  }).select("categoryCode");
+  // Check ALL categories (including soft-deleted) to avoid reusing historical codes
+  const categories = await MaterialCategory.find({}, "categoryCode").lean();
 
   let maxNumber = 0;
   for (const doc of categories) {
     if (doc.categoryCode) {
-      const num = parseInt(doc.categoryCode.replace(/\D/g, ""), 10);
-      if (!isNaN(num) && num > maxNumber) {
-        maxNumber = num;
+      const match = String(doc.categoryCode).match(/(\d+)/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxNumber) {
+          maxNumber = num;
+        }
       }
     }
   }
@@ -35,9 +37,14 @@ const generateCategoryCode = async () => {
  * Create Material Category
  */
 export const createCategory = async (categoryData, userId) => {
+  const trimmedName = categoryData.categoryName?.trim();
+  if (!trimmedName) {
+    throw new Error("Category name is required.");
+  }
+
   const existingCategory = await MaterialCategory.findOne({
     categoryName: {
-      $regex: new RegExp(`^${categoryData.categoryName}$`, "i"),
+      $regex: new RegExp(`^${trimmedName}$`, "i"),
     },
     isDeleted: false,
   });
@@ -46,15 +53,36 @@ export const createCategory = async (categoryData, userId) => {
     throw new Error("Category name already exists.");
   }
 
-  const categoryCode = await generateCategoryCode();
+  // Attempt creation with auto-retry if a duplicate code collision occurs
+  const MAX_RETRIES = 5;
+  let lastError = null;
 
-  const category = await MaterialCategory.create({
-    ...categoryData,
-    categoryCode,
-    createdBy: userId,
-  });
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      const categoryCode = await generateCategoryCode();
 
-  return category;
+      const category = await MaterialCategory.create({
+        ...categoryData,
+        categoryName: trimmedName,
+        categoryCode,
+        createdBy: userId,
+      });
+
+      return category;
+    } catch (err) {
+      lastError = err;
+      if (err.code === 11000) {
+        if (err.keyPattern?.categoryName || err.message?.includes("categoryName")) {
+          throw new Error("A category with this name already exists.");
+        }
+        // If duplicate was on categoryCode, continue loop to pick next number
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  throw lastError || new Error("Failed to create category. Please try again.");
 };
 
 /**

@@ -21,9 +21,17 @@ export const createMaterialCategory = async (req, res) => {
       data: category,
     });
   } catch (error) {
+    let message = error.message;
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyPattern || error.keyValue || {})[0] || "Field";
+      const value = error.keyValue ? error.keyValue[field] : "";
+      message = value
+        ? `${field} '${value}' already exists. Please use a unique value.`
+        : `${field} already exists. Please use a unique value.`;
+    }
     res.status(400).json({
       success: false,
-      message: error.message,
+      message,
     });
   }
 };

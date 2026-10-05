@@ -4,18 +4,21 @@ import PurchaseOrder from "../models/PurchaseOrder.js";
 
 /**
  * Generate Material Code
+ * Format: MAT0001
  */
 const generateMaterialCode = async () => {
-  const materials = await Material.find({
-    materialCode: /^MAT\d+$/i,
-  }).select("materialCode");
+  // Check ALL materials (including soft-deleted) to avoid reusing historical codes
+  const materials = await Material.find({}, "materialCode").lean();
 
   let maxNumber = 0;
   for (const doc of materials) {
     if (doc.materialCode) {
-      const num = parseInt(doc.materialCode.replace(/\D/g, ""), 10);
-      if (!isNaN(num) && num > maxNumber) {
-        maxNumber = num;
+      const match = String(doc.materialCode).match(/(\d+)/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxNumber) {
+          maxNumber = num;
+        }
       }
     }
   }
@@ -75,19 +78,38 @@ export const createMaterial = async (data, userId) => {
     throw new Error("Standard cost cannot be a negative number.");
   }
 
-  const materialCode = await generateMaterialCode();
+  const MAX_RETRIES = 5;
+  let lastError = null;
 
-  const material = await Material.create({
-    ...data,
-    standardCost: Number(data.standardCost),
-    materialName: trimmedName,
-    materialCode,
-    createdBy: userId,
-  });
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      const materialCode = await generateMaterialCode();
 
-  return await Material.findById(material._id)
-    .populate("category", "categoryName categoryCode")
-    .populate("preferredVendor", "vendorName vendorCode");
+      const material = await Material.create({
+        ...data,
+        standardCost: Number(data.standardCost),
+        materialName: trimmedName,
+        materialCode,
+        createdBy: userId,
+      });
+
+      return await Material.findById(material._id)
+        .populate("category", "categoryName categoryCode")
+        .populate("preferredVendor", "vendorName vendorCode");
+    } catch (err) {
+      lastError = err;
+      if (err.code === 11000) {
+        if (err.keyPattern?.materialName || err.message?.includes("materialName")) {
+          throw new Error("A material with this name already exists.");
+        }
+        // If duplicate on materialCode, continue loop to pick next number
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  throw lastError || new Error("Failed to create material. Please try again.");
 };
 
 /**
