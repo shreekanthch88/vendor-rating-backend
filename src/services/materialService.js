@@ -6,18 +6,29 @@ import PurchaseOrder from "../models/PurchaseOrder.js";
  * Generate Material Code
  */
 const generateMaterialCode = async () => {
-  const lastMaterial = await Material.findOne({})
-    .sort({ createdAt: -1 })
-    .select("materialCode");
+  const materials = await Material.find({
+    materialCode: /^MAT\d+$/i,
+  }).select("materialCode");
 
-  if (!lastMaterial) return "MAT0001";
+  let maxNumber = 0;
+  for (const doc of materials) {
+    if (doc.materialCode) {
+      const num = parseInt(doc.materialCode.replace(/\D/g, ""), 10);
+      if (!isNaN(num) && num > maxNumber) {
+        maxNumber = num;
+      }
+    }
+  }
 
-  const lastNumber = parseInt(
-    lastMaterial.materialCode.replace("MAT", ""),
-    10
-  );
+  let nextNumber = maxNumber + 1;
+  let candidate = `MAT${String(nextNumber).padStart(4, "0")}`;
 
-  return `MAT${String(lastNumber + 1).padStart(4, "0")}`;
+  while (await Material.exists({ materialCode: candidate })) {
+    nextNumber++;
+    candidate = `MAT${String(nextNumber).padStart(4, "0")}`;
+  }
+
+  return candidate;
 };
 
 /**

@@ -9,26 +9,29 @@ import VendorRating from "../models/VendorRating.js";
  * =====================================================
  */
 const generateVendorCode = async () => {
-  const lastVendor = await Vendor.findOne({
-    vendorCode: { $exists: true, $ne: null },
-  }).sort({
-    createdAt: -1,
-  });
+  const vendors = await Vendor.find({
+    vendorCode: /^VEN\d+$/i,
+  }).select("vendorCode");
 
-  if (!lastVendor || !lastVendor.vendorCode) {
-    return "VEN00001";
+  let maxNumber = 0;
+  for (const doc of vendors) {
+    if (doc.vendorCode) {
+      const num = parseInt(doc.vendorCode.replace(/\D/g, ""), 10);
+      if (!isNaN(num) && num > maxNumber) {
+        maxNumber = num;
+      }
+    }
   }
 
-  const lastNumber =
-    parseInt(
-      String(lastVendor.vendorCode).replace(/\D/g, "")
-    ) || 0;
+  let nextNumber = maxNumber + 1;
+  let candidate = `VEN${String(nextNumber).padStart(5, "0")}`;
 
-  const nextNumber = lastNumber + 1;
+  while (await Vendor.exists({ vendorCode: candidate })) {
+    nextNumber++;
+    candidate = `VEN${String(nextNumber).padStart(5, "0")}`;
+  }
 
-  return `VEN${nextNumber
-    .toString()
-    .padStart(5, "0")}`;
+  return candidate;
 };
 
 /**

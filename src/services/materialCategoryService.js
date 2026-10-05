@@ -6,18 +6,29 @@ import Material from "../models/Material.js";
  * Format: CAT0001
  */
 const generateCategoryCode = async () => {
-  const lastCategory = await MaterialCategory.findOne().sort({ createdAt: -1 });
+  const categories = await MaterialCategory.find({
+    categoryCode: /^CAT\d+$/i,
+  }).select("categoryCode");
 
-  if (!lastCategory) {
-    return "CAT0001";
+  let maxNumber = 0;
+  for (const doc of categories) {
+    if (doc.categoryCode) {
+      const num = parseInt(doc.categoryCode.replace(/\D/g, ""), 10);
+      if (!isNaN(num) && num > maxNumber) {
+        maxNumber = num;
+      }
+    }
   }
 
-  const lastNumber =
-    parseInt(lastCategory.categoryCode.replace("CAT", "")) || 0;
+  let nextNumber = maxNumber + 1;
+  let candidate = `CAT${String(nextNumber).padStart(4, "0")}`;
 
-  const nextNumber = lastNumber + 1;
+  while (await MaterialCategory.exists({ categoryCode: candidate })) {
+    nextNumber++;
+    candidate = `CAT${String(nextNumber).padStart(4, "0")}`;
+  }
 
-  return `CAT${nextNumber.toString().padStart(4, "0")}`;
+  return candidate;
 };
 
 /**
